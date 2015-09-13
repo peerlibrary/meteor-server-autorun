@@ -82,6 +82,9 @@ class TrackerInstance
       @inFlush.wait()
       assert not @inFlush
 
+    # If already in flush and this is a flush from requireFlush, just skip it.
+    return if @inFlush and options?.fromRequireFlush
+
     throw new Error "Can't call Tracker.flush while flushing" if @inFlush
 
     throw new Error "Can't flush inside Tracker.autorun" if @inCompute
