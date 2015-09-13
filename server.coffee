@@ -1,4 +1,5 @@
 Fiber = Npm.require 'fibers'
+Future = Npm.require 'fibers/future'
 
 # Tracker.Computation constructor is private, so we are using this object as a guard.
 # External code cannot access this, and will not be able to directly construct a
@@ -14,7 +15,8 @@ class TrackerInstance
 
     @pendingComputations = []
     @willFlush = false
-    @inFlush = false
+    @inFlush = null
+    @inRequireFlush = false
     @inCompute = false
     @throwFirstError = false
     @afterFlushCallbacks = []
@@ -61,19 +63,35 @@ class TrackerInstance
 
     if typeof Meteor isnt "undefined"
       Meteor.defer =>
-        @_runFlush()
+        @_runFlush
+          fromRequireFlush: true
     else
       global.setImmediate =>
-        @_runFlush()
+        @_runFlush
+          fromRequireFlush: true
 
     @willFlush = true
 
   _runFlush: (options) ->
+    if @inFlush instanceof Future
+      # If there are two runs from requireFlush in sequence, we simply skip the second one, the first
+      # one is still in progress.
+      return if options?.fromRequireFlush
+
+      # We wait for the previous flush from requireFlush to finish before continuing.
+      @inFlush.wait()
+      assert not @inFlush
+
     throw new Error "Can't call Tracker.flush while flushing" if @inFlush
 
     throw new Error "Can't flush inside Tracker.autorun" if @inCompute
 
-    @inFlush = true
+    # If this is a run from requireFlush, provide a future so that calls to flush can wait on it.
+    if options?.fromRequireFlush
+      @inFlush = new Future()
+    else
+      @inFlush = true
+
     @willFlush = true
     @throwFirstError = !!options?.throwFirstError
 
@@ -101,14 +119,19 @@ class TrackerInstance
 
       finishedTry = true
     finally
+      # We first have to set @inFlush to null, then we can return.
+
+      inFlush = @inFlush
       unless finishedTry
-        @inFlush = false
+        @inFlush = null
+        inFlush.return() if inFlush instanceof Future
         @_runFlush
           finishSynchronously: options?.finishSynchronously
           throwFirstError: false
 
       @willFlush = false
-      @inFlush = false
+      @inFlush = null
+      inFlush.return() if inFlush instanceof Future
       if @pendingComputations.length or @afterFlushCallbacks.length
         throw new Error "still have more to do?" if options?.finishSynchronously
         Meteor.setTimeout =>
