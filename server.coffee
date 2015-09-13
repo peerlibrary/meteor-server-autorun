@@ -138,47 +138,46 @@ class TrackerInstance
           @requireFlush()
         , 10 # ms
 
-_.extend Tracker,
-  _computations: {}
+Tracker._computations = {}
 
-  _trackerInstance: ->
-    Meteor._nodeCodeMustBeInFiber()
-    Fiber.current._trackerInstance ?= new TrackerInstance()
+Tracker._trackerInstance = ->
+  Meteor._nodeCodeMustBeInFiber()
+  Fiber.current._trackerInstance ?= new TrackerInstance()
 
-  flush: (options) ->
-    Tracker._trackerInstance()._runFlush
-      finishSynchronously: true
-      throwFirstError: options?._throwFirstError
+Tracker.flush = (options) ->
+  Tracker._trackerInstance()._runFlush
+    finishSynchronously: true
+    throwFirstError: options?._throwFirstError
 
-  autorun: (func, options) ->
-    throw new Error "Tracker.autorun requires a function argument" unless typeof func is "function"
+Tracker.autorun = (func, options) ->
+  throw new Error "Tracker.autorun requires a function argument" unless typeof func is "function"
 
-    c = new Tracker.Computation func, Tracker.currentComputation, options?.onError, privateObject
+  c = new Tracker.Computation func, Tracker.currentComputation, options?.onError, privateObject
 
-    if Tracker.active
-      Tracker.onInvalidate ->
-        c.stop()
+  if Tracker.active
+    Tracker.onInvalidate ->
+      c.stop()
 
-    c
+  c
 
-  nonreactive: (f) ->
-    trackerInstance = Tracker._trackerInstance()
-    previous = trackerInstance.currentComputation
-    trackerInstance.setCurrentComputation null
-    try
-      return f()
-    finally
-      trackerInstance.setCurrentComputation previous
+Tracker.nonreactive = (f) ->
+  trackerInstance = Tracker._trackerInstance()
+  previous = trackerInstance.currentComputation
+  trackerInstance.setCurrentComputation null
+  try
+    return f()
+  finally
+    trackerInstance.setCurrentComputation previous
 
-  onInvalidate: (f) ->
-    throw new Error "Tracker.onInvalidate requires a currentComputation" unless Tracker.active
+Tracker.onInvalidate = (f) ->
+  throw new Error "Tracker.onInvalidate requires a currentComputation" unless Tracker.active
 
-    Tracker.currentComputation.onInvalidate f
+  Tracker.currentComputation.onInvalidate f
 
-  afterFlush: (f) ->
-    trackerInstance = Tracker._trackerInstance()
-    trackerInstance.afterFlushCallbacks.push f
-    trackerInstance.requireFlush()
+Tracker.afterFlush = (f) ->
+  trackerInstance = Tracker._trackerInstance()
+  trackerInstance.afterFlushCallbacks.push f
+  trackerInstance.requireFlush()
 
 # Compatibility with the client-side Tracker. On node.js we can use defineProperties to define getters.
 Object.defineProperties Tracker,
