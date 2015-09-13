@@ -15,6 +15,8 @@ Package.onUse(function (api) {
     'tracker'
   ]);
 
+  api.export('Tracker');
+
   // 3rd party dependencies.
   api.use([
     'peerlibrary:assert@0.2.5'
@@ -38,7 +40,10 @@ Package.onTest(function (api) {
     'mongo',
     'reactive-var',
     'minimongo',
-    'underscore'
+    'underscore',
+    'ejson',
+    'random',
+    'mongo-id'
   ]);
 
   // Internal dependencies.
