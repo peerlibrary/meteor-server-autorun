@@ -214,8 +214,7 @@ if Meteor.isServer
     Tracker.afterFlush ->
       afterFlushHasExecuted = true
 
-    # Create a new computation in this fiber. This will cause the global outstandingComputations
-    # to be incremented.
+    # Create a new computation in this fiber.
     Tracker.autorun ->
       # Inside the computation, we yield so other fibers may run. This will cause the
       # deferred flush to execute.
