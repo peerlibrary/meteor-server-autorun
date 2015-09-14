@@ -58,17 +58,25 @@ class TrackerInstance
       for printArg in printArgs
         @_debugFunc() printArg
 
+  _deferAndTransfer: (func) ->
+    # Defer execution of a function, which will create a new fiber. Make the resulting
+    # fiber share ownership of the same tracker instance as it will serve only as its
+    # extension for executing its flushes.
+    Meteor.defer =>
+      assert not Fiber.current._trackerInstance
+
+      try
+        Fiber.current._trackerInstance = @
+        func()
+      finally
+        Fiber.current._trackerInstance = null
+
   requireFlush: ->
     return if @willFlush
 
-    if typeof Meteor isnt "undefined"
-      Meteor.defer =>
-        @_runFlush
-          fromRequireFlush: true
-    else
-      global.setImmediate =>
-        @_runFlush
-          fromRequireFlush: true
+    @_deferAndTransfer =>
+      @_runFlush
+        fromRequireFlush: true
 
     @willFlush = true
 
@@ -87,7 +95,15 @@ class TrackerInstance
 
     throw new Error "Can't call Tracker.flush while flushing" if @inFlush
 
-    throw new Error "Can't flush inside Tracker.autorun" if @inCompute
+    if @inCompute
+      if options?.fromRequireFlush
+        # If this fiber is currently running a computation and a require flush has been
+        # deferred, we need to defer again and retry.
+        @_deferAndTransfer =>
+          @_runFlush options
+        return
+
+      throw new Error "Can't flush inside Tracker.autorun"
 
     # If this is a run from requireFlush, provide a future so that calls to flush can wait on it.
     if options?.fromRequireFlush
