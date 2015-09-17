@@ -1,5 +1,5 @@
 class ServerAutorunTestCase extends ClassyTestCase
-  @testName: 'server-sutorun'
+  @testName: 'server-autorun'
 
   setUpServer: ->
     @collection ?= new Mongo.Collection 'test_collection'
