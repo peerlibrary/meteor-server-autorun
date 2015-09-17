@@ -225,7 +225,7 @@ class ServerAutorunTestCase extends ClassyTestCase
     Meteor._sleepForMs 500
 
     # If everything worked, afterFlush has executed.
-    @assertEqual afterFlushHasExecuted
+    @assertTrue afterFlushHasExecuted
 
   testServerParallelComputationsWithFibers: ->
     # Spawn some fibers.
