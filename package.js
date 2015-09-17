@@ -51,6 +51,11 @@ Package.onTest(function (api) {
     'peerlibrary:server-autorun'
   ]);
 
+  // 3rd party dependencies.
+  api.use([
+    'peerlibrary:classy-test@0.2.18'
+  ]);
+
   api.addFiles([
     'meteor/packages/tracker/tracker_tests.js',
     'meteor/packages/minimongo/minimongo_tests.js',
