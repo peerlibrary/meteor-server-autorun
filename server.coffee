@@ -6,6 +6,9 @@ Future = Npm.require 'fibers/future'
 # Tracker.Computation instance.
 privateObject = {}
 
+# Guard object for fiber utils.
+guard = {}
+
 nextId = 1
 
 class TrackerInstance
@@ -261,6 +264,7 @@ class Tracker.Computation
       @_onStopCallbacks.push f
 
   invalidate: ->
+    # TODO: Why some tests freeze if we wrap this method into FiberUtils.synchronize?
     if not @invalidated
       if not @_recomputing and not @stopped
         @_trackerInstance.requireFlush()
@@ -274,30 +278,32 @@ class Tracker.Computation
       @_onInvalidateCallbacks = []
 
   stop: ->
-    return if @stopped
-    @stopped = true
+    FiberUtils.synchronize guard, @_id, =>
+      return if @stopped
+      @stopped = true
 
-    @invalidate()
+      @invalidate()
 
-    delete Tracker._computations[@_id]
+      delete Tracker._computations[@_id]
 
-    for callback in @_onStopCallbacks
-      Tracker.nonreactive =>
-        callback @
-    @_onStopCallbacks = []
+      for callback in @_onStopCallbacks
+        Tracker.nonreactive =>
+          callback @
+      @_onStopCallbacks = []
 
   _compute: ->
-    @invalidated = false
+    FiberUtils.synchronize guard, @_id, =>
+      @invalidated = false
 
-    previous = @_trackerInstance.currentComputation
-    @_trackerInstance.setCurrentComputation @
-    previousInCompute = @_trackerInstance.inCompute
-    @_trackerInstance.inCompute = true
-    try
-      @_func @
-    finally
-      @_trackerInstance.setCurrentComputation previous
-      @_trackerInstance.inCompute = previousInCompute
+      previous = @_trackerInstance.currentComputation
+      @_trackerInstance.setCurrentComputation @
+      previousInCompute = @_trackerInstance.inCompute
+      @_trackerInstance.inCompute = true
+      try
+        @_func @
+      finally
+        @_trackerInstance.setCurrentComputation previous
+        @_trackerInstance.inCompute = previousInCompute
 
   _needsRecompute: ->
     @invalidated and not @stopped

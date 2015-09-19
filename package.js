@@ -19,7 +19,8 @@ Package.onUse(function (api) {
 
   // 3rd party dependencies.
   api.use([
-    'peerlibrary:assert@0.2.5'
+    'peerlibrary:assert@0.2.5',
+    'peerlibrary:fiber-utils@0.5.1'
   ], 'server');
 
   api.addFiles([
