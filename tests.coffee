@@ -208,61 +208,102 @@ class ServerAutorunTestCase extends ClassyTestCase
         computation.stop()
 
   testServerFlushWithFibers: ->
-    # Register an afterFlush callback. This will call defer and schedule a flush to
-    # be executed once the current fiber yields.
-    afterFlushHasExecuted = false
-    Tracker.afterFlush ->
-      afterFlushHasExecuted = true
+    try
+      computation = null
 
-    # Create a new computation in this fiber.
-    Tracker.autorun (computation) =>
-      # Inside the computation, we yield so other fibers may run. This will cause the
-      # deferred flush to execute.
+      # Register an afterFlush callback. This will call defer and schedule a flush to
+      # be executed once the current fiber yields.
+      afterFlushHasExecuted = false
+      Tracker.afterFlush ->
+        afterFlushHasExecuted = true
+
+      # Create a new computation in this fiber.
+      computation = Tracker.autorun (computation) =>
+        # Inside the computation, we yield so other fibers may run. This will cause the
+        # deferred flush to execute.
+        Meteor._sleepForMs 500
+
+      # Now we are outside any computations. If everything works correctly, doing another
+      # yield here should properly execute the flush and thus the afterFlush callback.
       Meteor._sleepForMs 500
 
-    # Now we are outside any computations. If everything works correctly, doing another
-    # yield here should properly execute the flush and thus the afterFlush callback.
-    Meteor._sleepForMs 500
+      # If everything worked, afterFlush has executed.
+      @assertTrue afterFlushHasExecuted
 
-    # If everything worked, afterFlush has executed.
-    @assertTrue afterFlushHasExecuted
+    finally
+      computation?.stop()
 
   testServerParallelComputationsWithFibers: ->
-    # Spawn some fibers.
-    Fiber = Npm.require 'fibers'
-    Future = Npm.require 'fibers/future'
-    # The first fiber runs a computation and yields for 100 ms while in computation.
-    futureA = new Future()
-    fiberA = Fiber ->
-      Tracker.autorun (computation) =>
-        Meteor._sleepForMs 100
+    try
+      computations = []
 
-      futureA.return()
-    fiberA.run()
-    # The second fiber runs a computation and yields for 200 ms while in computation.
-    futureB = new Future()
-    fiberB = Fiber ->
-      Tracker.autorun (computation) =>
-        Meteor._sleepForMs 200
-      futureB.return()
-    fiberB.run()
+      # Spawn some fibers.
+      Fiber = Npm.require 'fibers'
+      Future = Npm.require 'fibers/future'
+      # The first fiber runs a computation and yields for 100 ms while in computation.
+      futureA = new Future()
+      fiberA = Fiber =>
+        computations.push Tracker.autorun (computation) =>
+          Meteor._sleepForMs 100
 
-    # Wait for both fibers to finish. If handled incorrectly, this could cause computation
-    # state corruption, causing the any later flushes to never run.
-    futureA.wait()
-    futureB.wait()
+        futureA.return()
+      fiberA.run()
+      # The second fiber runs a computation and yields for 200 ms while in computation.
+      futureB = new Future()
+      fiberB = Fiber =>
+        computations.push Tracker.autorun (computation) =>
+          Meteor._sleepForMs 200
+        futureB.return()
+      fiberB.run()
 
-    # Register an afterFlush callback. This will call defer and schedule a flush to
-    # be executed once the current fiber yields.
-    afterFlushHasExecuted = false
-    Tracker.afterFlush ->
-      afterFlushHasExecuted = true
+      # Wait for both fibers to finish. If handled incorrectly, this could cause computation
+      # state corruption, causing the any later flushes to never run.
+      futureA.wait()
+      futureB.wait()
 
-    # We yield the current fiber and the afterFlush must run.
-    Meteor._sleepForMs 500
+      # Register an afterFlush callback. This will call defer and schedule a flush to
+      # be executed once the current fiber yields.
+      afterFlushHasExecuted = false
+      Tracker.afterFlush ->
+        afterFlushHasExecuted = true
 
-    # If everything worked, afterFlush has executed.
-    @assertTrue afterFlushHasExecuted
+      # We yield the current fiber and the afterFlush must run.
+      Meteor._sleepForMs 500
+
+      # If everything worked, afterFlush has executed.
+      @assertTrue afterFlushHasExecuted
+
+    finally
+      for computation in computations
+        computation.stop()
+
+  testServerBlockingStop: ->
+    trigger = new ReactiveVar 0
+    startedAutorun = false
+    finishedAutorun = false
+
+    computation = Tracker.autorun (computation) =>
+      trigger.get()
+      return if computation.firstRun
+
+      startedAutorun = true
+      Meteor._sleepForMs 100
+      finishedAutorun = true
+
+    trigger.set 1
+
+    # We sleep a bit (but less than 100 ms) to allow flushing to start.
+    Meteor._sleepForMs 10
+
+    @assertTrue startedAutorun
+    @assertFalse finishedAutorun
+
+    # Computation is still in progress (sleeping) when we stop it.
+    # Stop should block until the computation finishes.
+    computation.stop()
+
+    @assertTrue startedAutorun
+    @assertTrue finishedAutorun
 
 # Register the test case.
 ClassyTestCase.addTest new ServerAutorunTestCase()
