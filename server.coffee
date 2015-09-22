@@ -318,13 +318,14 @@ class Tracker.Computation
     @invalidated and not @stopped
 
   _recompute: ->
-    assert not @_recomputing
-    @_recomputing = true
-    try
-      if @_needsRecompute()
-        @_compute()
-    finally
-      @_recomputing = false
+    FiberUtils.synchronize guard, @_id, =>
+      assert not @_recomputing
+      @_recomputing = true
+      try
+        if @_needsRecompute()
+          @_compute()
+      finally
+        @_recomputing = false
 
   flush: ->
     return if @_recomputing
