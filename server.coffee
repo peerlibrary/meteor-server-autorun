@@ -137,7 +137,7 @@ class TrackerInstance
           try
             func()
           catch error
-            _throwOrLog "afterFlush", error
+            @_throwOrLog "afterFlush", error
 
       finishedTry = true
     finally
