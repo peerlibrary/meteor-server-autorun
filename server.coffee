@@ -291,19 +291,28 @@ class Tracker.Computation
           callback @
       @_onStopCallbacks = []
 
+  # Runs an arbitrary function inside the computation. This allows breaking many assumptions, so use it very carefully.
+  _runInside: (func) ->
+    # TODO: Why reactive publish tests freeze if we wrap this method into FiberUtils.synchronize?
+    Meteor._nodeCodeMustBeInFiber()
+    previousTrackerInstance = Tracker._trackerInstance()
+    Fiber.current._trackerInstance = @_trackerInstance
+    previousComputation = @_trackerInstance.currentComputation
+    @_trackerInstance.setCurrentComputation @
+    previousInCompute = @_trackerInstance.inCompute
+    @_trackerInstance.inCompute = true
+    try
+      func @
+    finally
+      Fiber.current._trackerInstance = previousTrackerInstance
+      @_trackerInstance.setCurrentComputation previousComputation
+      @_trackerInstance.inCompute = previousInCompute
+
   _compute: ->
     FiberUtils.synchronize guard, @_id, =>
       @invalidated = false
 
-      previous = @_trackerInstance.currentComputation
-      @_trackerInstance.setCurrentComputation @
-      previousInCompute = @_trackerInstance.inCompute
-      @_trackerInstance.inCompute = true
-      try
-        @_func @
-      finally
-        @_trackerInstance.setCurrentComputation previous
-        @_trackerInstance.inCompute = previousInCompute
+      @_runInside @_func
 
   _needsRecompute: ->
     @invalidated and not @stopped
