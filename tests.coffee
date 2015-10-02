@@ -1,163 +1,309 @@
-if Meteor.isClient
-  collection = new Mongo.Collection null
-else
-  collection = new Mongo.Collection 'test_collection'
+class ServerAutorunTestCase extends ClassyTestCase
+  @testName: 'server-autorun'
 
-Tinytest.add "tracker - reactive variable", (test) ->
-  try
-    computation = null
-    variable = new ReactiveVar 0
+  setUpServer: ->
+    @collection ?= new Mongo.Collection 'test_collection'
+    @collection.remove {}
 
-    runs = []
+  setUpClient: ->
+    @collection ?= new Mongo.Collection null
+    @collection.remove {}
 
-    computation = Tracker.autorun ->
-      runs.push variable.get()
+  testReactiveVariable: ->
+    try
+      computation = null
+      variable = new ReactiveVar 0
 
-    variable.set 1
-    Tracker.flush()
+      runs = []
 
-    variable.set 1
-    Tracker.flush()
+      computation = Tracker.autorun (computation) =>
+        runs.push variable.get()
 
-    variable.set 2
-    Tracker.flush()
+      variable.set 1
+      Tracker.flush()
 
-    test.equal runs, [0, 1, 2]
+      variable.set 1
+      Tracker.flush()
 
-  finally
-    computation.stop()
+      variable.set 2
+      Tracker.flush()
 
-Tinytest.add "tracker - queries", (test) ->
-  collection.remove {}
+      @assertEqual runs, [0, 1, 2]
 
-  try
-    computations = []
-    variable = new ReactiveVar 0
+    finally
+      computation?.stop()
 
-    runs = []
+  # To test if afterFlush callbacks are run in the same order on the client and server.
+  testIvalidationsInsideAutorun: ->
+    try
+      computation = null
+      variable = new ReactiveVar 0
 
-    computations.push Tracker.autorun ->
-      collection.insert variable: variable.get()
+      runs = []
 
-    computations.push Tracker.autorun ->
-      variable.get()
+      Tracker.afterFlush ->
+        runs.push 'flush1'
 
-      if Meteor.isServer
-        # Sleep a bit. To test blocking operations.
-        Meteor._sleepForMs 250
+      computation = Tracker.autorun (computation) =>
+        Tracker.afterFlush ->
+          runs.push 'flush-before'
 
-      # Non-reactive so that it is the same on client and server.
-      # But on the server this is a blocking operation.
-      runs.push collection.findOne({}, reactive: false)?.variable
+        runs.push variable.get()
+        variable.set variable.get() + 1 if variable.get() < 3
 
-    computations.push Tracker.autorun ->
-      variable.get()
-      collection.remove {}
+        Tracker.afterFlush ->
+          runs.push 'flush-after'
 
-    variable.set 1
-    Tracker.flush()
+      Tracker.afterFlush ->
+        runs.push 'flush2'
 
-    variable.set 1
-    Tracker.flush()
+      variable.set 1
+      Tracker.flush()
 
-    variable.set 2
-    Tracker.flush()
+      Tracker.afterFlush ->
+        runs.push 'flush3'
 
-    test.equal runs, [0, 1, 2]
+      variable.set 1
+      Tracker.flush()
 
-  finally
-    for computation in computations
-      computation.stop()
+      Tracker.afterFlush ->
+        runs.push 'flush4'
 
-Tinytest.add "tracker - local queries", (test) ->
-  return
+      variable.set 2
+      Tracker.flush()
 
-  localCollection = new Mongo.Collection null
+      @assertEqual runs, [0, 1, 2, 3, 'flush1', 'flush-before', 'flush-after', 'flush2', 'flush-before', 'flush-after', 'flush-before', 'flush-after', 'flush-before', 'flush-after', 1, 2, 3, 'flush3', 'flush-before', 'flush-after', 'flush-before', 'flush-after', 'flush-before', 'flush-after', 2, 3, 'flush4', 'flush-before', 'flush-after', 'flush-before', 'flush-after']
 
-  try
-    computations = []
-    variable = new ReactiveVar 0
+    finally
+      computation?.stop()
 
-    runs = []
+  # Should be the same order as above, just that we are adding some yields.
+  testServerInvalidationsInsideAutorunWithYields: ->
+    try
+      computation = null
+      variable = new ReactiveVar 0
 
-    computations.push Tracker.autorun ->
-      localCollection.insert variable: variable.get()
+      runs = []
 
-    computations.push Tracker.autorun ->
-      # Minimongo is reactive both on the client and server.
-      runs.push localCollection.findOne({})?.variable
-      localCollection.remove {}
+      Tracker.afterFlush ->
+        runs.push 'flush1'
 
-    variable.set 1
-    Tracker.flush()
+      computation = Tracker.autorun (computation) =>
+        Tracker.afterFlush ->
+          runs.push 'flush-before'
 
-    variable.set 1
-    Tracker.flush()
+        runs.push variable.get()
 
-    variable.set 2
-    Tracker.flush()
+        Meteor._sleepForMs 1
 
-    test.equal runs, [0, undefined, 1, undefined, 2, undefined]
+        variable.set variable.get() + 1 if variable.get() < 3
 
-  finally
-    for computation in computations
-      computation.stop()
+        Meteor._sleepForMs 1
 
-if Meteor.isServer
-  Tinytest.add "tracker - flush with fibers", (test) ->
-    # Register an afterFlush callback. This will call defer and schedule a flush to
-    # be executed once the current fiber yields.
-    afterFlushHasExecuted = false
-    Tracker.afterFlush ->
-      afterFlushHasExecuted = true
+        Tracker.afterFlush ->
+          runs.push 'flush-after'
 
-    # Create a new computation in this fiber. This will cause the global outstandingComputations
-    # to be incremented.
-    Tracker.autorun ->
-      # Inside the computation, we yield so other fibers may run. This will cause the
-      # deferred flush to execute.
+      Tracker.afterFlush ->
+        runs.push 'flush2'
+
+      variable.set 1
+
+      Meteor._sleepForMs 1
+
+      Tracker.flush()
+
+      Tracker.afterFlush ->
+        runs.push 'flush3'
+
+      variable.set 1
+
+      Meteor._sleepForMs 1
+
+      Tracker.flush()
+
+      Tracker.afterFlush ->
+        runs.push 'flush4'
+
+      variable.set 2
+
+      Meteor._sleepForMs 1
+
+      Tracker.flush()
+
+      @assertEqual runs, [0, 1, 2, 3, 'flush1', 'flush-before', 'flush-after', 'flush2', 'flush-before', 'flush-after', 'flush-before', 'flush-after', 'flush-before', 'flush-after', 1, 2, 3, 'flush3', 'flush-before', 'flush-after', 'flush-before', 'flush-after', 'flush-before', 'flush-after', 2, 3, 'flush4', 'flush-before', 'flush-after', 'flush-before', 'flush-after']
+
+    finally
+      computation?.stop()
+
+  testQueries: ->
+    try
+      computations = []
+      variable = new ReactiveVar 0
+
+      runs = []
+
+      computations.push Tracker.autorun (computation) =>
+        @collection.insert variable: variable.get()
+
+      computations.push Tracker.autorun (computation) =>
+        variable.get()
+
+        if Meteor.isServer
+          # Sleep a bit. To test blocking operations.
+          Meteor._sleepForMs 250
+
+        # Non-reactive so that it is the same on client and server.
+        # But on the server this is a blocking operation.
+        runs.push @collection.findOne({}, reactive: false)?.variable
+
+      computations.push Tracker.autorun (computation) =>
+        variable.get()
+        @collection.remove {}
+
+      variable.set 1
+      Tracker.flush()
+
+      variable.set 1
+      Tracker.flush()
+
+      variable.set 2
+      Tracker.flush()
+
+      @assertEqual runs, [0, 1, 2]
+
+    finally
+      for computation in computations
+        computation.stop()
+
+  testLocalQueries: ->
+    localCollection = new Mongo.Collection null
+
+    try
+      computations = []
+      variable = new ReactiveVar 0
+
+      runs = []
+
+      computations.push Tracker.autorun (computation) =>
+        localCollection.insert variable: variable.get()
+
+      computations.push Tracker.autorun (computation) =>
+        # Minimongo is reactive both on the client and server.
+        runs.push localCollection.findOne({})?.variable
+        localCollection.remove {}
+
+      variable.set 1
+      Tracker.flush()
+
+      variable.set 1
+      Tracker.flush()
+
+      variable.set 2
+      Tracker.flush()
+
+      @assertEqual runs, [0, undefined, 1, undefined, 2, undefined]
+
+    finally
+      for computation in computations
+        computation.stop()
+
+  testServerFlushWithFibers: ->
+    try
+      computation = null
+
+      # Register an afterFlush callback. This will call defer and schedule a flush to
+      # be executed once the current fiber yields.
+      afterFlushHasExecuted = false
+      Tracker.afterFlush ->
+        afterFlushHasExecuted = true
+
+      # Create a new computation in this fiber.
+      computation = Tracker.autorun (computation) =>
+        # Inside the computation, we yield so other fibers may run. This will cause the
+        # deferred flush to execute.
+        Meteor._sleepForMs 500
+
+      # Now we are outside any computations. If everything works correctly, doing another
+      # yield here should properly execute the flush and thus the afterFlush callback.
       Meteor._sleepForMs 500
 
-    # Now we are outside any computations. If everything works correctly, doing another
-    # yield here should properly execute the flush and thus the afterFlush callback.
-    Meteor._sleepForMs 500
+      # If everything worked, afterFlush has executed.
+      @assertTrue afterFlushHasExecuted
 
-    # If everything worked, afterFlush has executed.
-    test.isTrue afterFlushHasExecuted
+    finally
+      computation?.stop()
 
-  Tinytest.add "tracker - parallel computations with fibers", (test) ->
-    # Spawn some fibers.
-    Fiber = Npm.require 'fibers'
-    Future = Npm.require 'fibers/future'
-    # The first fiber runs a computation and yields for 100 ms while in computation.
-    futureA = new Future()
-    fiberA = Fiber ->
-      Tracker.autorun ->
-        Meteor._sleepForMs 100
+  testServerParallelComputationsWithFibers: ->
+    try
+      computations = []
 
-      futureA.return()
-    fiberA.run()
-    # The second fiber runs a computation and yields for 200 ms while in computation.
-    futureB = new Future()
-    fiberB = Fiber ->
-      Tracker.autorun ->
-        Meteor._sleepForMs 200
-      futureB.return()
-    fiberB.run()
+      # Spawn some fibers.
+      Fiber = Npm.require 'fibers'
+      Future = Npm.require 'fibers/future'
+      # The first fiber runs a computation and yields for 100 ms while in computation.
+      futureA = new Future()
+      fiberA = Fiber =>
+        computations.push Tracker.autorun (computation) =>
+          Meteor._sleepForMs 100
 
-    # Wait for both fibers to finish. If handled incorrectly, this could cause computation
-    # state corruption, causing the any later flushes to never run.
-    futureA.wait()
-    futureB.wait()
+        futureA.return()
+      fiberA.run()
+      # The second fiber runs a computation and yields for 200 ms while in computation.
+      futureB = new Future()
+      fiberB = Fiber =>
+        computations.push Tracker.autorun (computation) =>
+          Meteor._sleepForMs 200
+        futureB.return()
+      fiberB.run()
 
-    # Register an afterFlush callback. This will call defer and schedule a flush to
-    # be executed once the current fiber yields.
-    afterFlushHasExecuted = false
-    Tracker.afterFlush ->
-      afterFlushHasExecuted = true
+      # Wait for both fibers to finish. If handled incorrectly, this could cause computation
+      # state corruption, causing the any later flushes to never run.
+      futureA.wait()
+      futureB.wait()
 
-    # We yield the current fiber and the afterFlush must run.
-    Meteor._sleepForMs 500
+      # Register an afterFlush callback. This will call defer and schedule a flush to
+      # be executed once the current fiber yields.
+      afterFlushHasExecuted = false
+      Tracker.afterFlush ->
+        afterFlushHasExecuted = true
 
-    # If everything worked, afterFlush has executed.
-    test.isTrue afterFlushHasExecuted
+      # We yield the current fiber and the afterFlush must run.
+      Meteor._sleepForMs 500
+
+      # If everything worked, afterFlush has executed.
+      @assertTrue afterFlushHasExecuted
+
+    finally
+      for computation in computations
+        computation.stop()
+
+  testServerBlockingStop: ->
+    trigger = new ReactiveVar 0
+    startedAutorun = false
+    finishedAutorun = false
+
+    computation = Tracker.autorun (computation) =>
+      trigger.get()
+      return if computation.firstRun
+
+      startedAutorun = true
+      Meteor._sleepForMs 100
+      finishedAutorun = true
+
+    trigger.set 1
+
+    # We sleep a bit (but less than 100 ms) to allow flushing to start.
+    Meteor._sleepForMs 10
+
+    @assertTrue startedAutorun
+    @assertFalse finishedAutorun
+
+    # Computation is still in progress (sleeping) when we stop it.
+    # Stop should block until the computation finishes.
+    computation.stop()
+
+    @assertTrue startedAutorun
+    @assertTrue finishedAutorun
+
+# Register the test case.
+ClassyTestCase.addTest new ServerAutorunTestCase()

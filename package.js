@@ -6,7 +6,7 @@ Package.describe({
 });
 
 Package.onUse(function (api) {
-  api.versionsFrom('1.0.3.1');
+  api.versionsFrom('METEOR@1.0.3.1');
 
   // Core dependencies.
   api.use([
@@ -15,9 +15,12 @@ Package.onUse(function (api) {
     'tracker'
   ]);
 
+  api.export('Tracker');
+
   // 3rd party dependencies.
   api.use([
-    'peerlibrary:assert@0.2.5'
+    'peerlibrary:assert@0.2.5',
+    'peerlibrary:fiber-utils@0.5.1'
   ], 'server');
 
   api.addFiles([
@@ -36,7 +39,12 @@ Package.onTest(function (api) {
     'test-helpers',
     'coffeescript',
     'mongo',
-    'reactive-var'
+    'reactive-var',
+    'minimongo',
+    'underscore',
+    'ejson',
+    'random',
+    'mongo-id'
   ]);
 
   // Internal dependencies.
@@ -44,8 +52,14 @@ Package.onTest(function (api) {
     'peerlibrary:server-autorun'
   ]);
 
+  // 3rd party dependencies.
+  api.use([
+    'peerlibrary:classy-test@0.2.18'
+  ]);
+
   api.addFiles([
     'meteor/packages/tracker/tracker_tests.js',
+    'meteor/packages/minimongo/minimongo_tests.js',
     'tests.coffee'
   ]);
 });

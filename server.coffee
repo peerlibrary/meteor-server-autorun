@@ -1,147 +1,218 @@
+Fiber = Npm.require 'fibers'
+Future = Npm.require 'fibers/future'
+
 # Tracker.Computation constructor is private, so we are using this object as a guard.
 # External code cannot access this, and will not be able to directly construct a
 # Tracker.Computation instance.
 privateObject = {}
 
+# Guard object for fiber utils.
+guard = {}
+
 nextId = 1
-willFlush = false
-inFlush = false
-outstandingComputations = 0
-firstError = false
-throwFirstError = false
-queue = new Meteor._SynchronousQueue()
-afterFlushCallbacks = []
 
-# Copied from tracker.js.
-_debugFunc = ->
-  return Meteor._debug if Meteor?._debug
+class TrackerInstance
+  constructor: ->
+    @active = false
+    @currentComputation = null
 
-  if console?.log
+    @pendingComputations = []
+    @willFlush = false
+    @inFlush = null
+    @inRequireFlush = false
+    @inCompute = false
+    @throwFirstError = false
+    @afterFlushCallbacks = []
+
+  setCurrentComputation: (computation) ->
+    @currentComputation = computation
+    @active = !!computation
+
+  # Copied from tracker.js.
+  _debugFunc: ->
+    return Meteor._debug if Meteor?._debug
+
+    if console?.error
+      return ->
+        console.error.apply console, arguments
+
     return ->
-      console.log.apply console, arguments
 
-  return ->
+  # Copied from tracker.js.
+  _maybeSuppressMoreLogs: (messagesLength) ->
+    if typeof Meteor isnt "undefined"
+      if Meteor._suppressed_log_expected()
+        Meteor._suppress_log(messagesLength - 1)
 
-# Copied from tracker.js, but it stores the first error if throwFirstError is set.
-_throwOrLog = (from, error) ->
-  if throwFirstError
-    firstError = error
-    throwFirstError = false
-  else
-    messageAndStack = undefined
-    if error.stack and error.message
-      idx = error.stack.indexOf error.message
-      if idx >= 0 and idx <= 10
-        messageAndStack = error.stack
-      else
-        messageAndStack = error.message + (if error.stack.charAt(0) is '\n' then '' else '\n') + error.stack
+  # Copied from tracker.js.
+  _throwOrLog: (from, error) ->
+    if @throwFirstError
+      throw error
     else
-      messageAndStack = error.stack or error.message
+      printArgs = ["Exception from Tracker " + from + " function:"]
+      if error.stack and error.message and error.name
+        idx = error.stack.indexOf error.message
+        if idx < 0 or idx > error.name.length + 2
+          message = error.name + ": " + error.message
+          printArgs.push message
+      printArgs.push error.stack
+      @_maybeSuppressMoreLogs printArgs.length
 
-    _debugFunc() "Exception from Tracker " + from + " function:", messageAndStack
+      for printArg in printArgs
+        @_debugFunc() printArg
 
-requireFlush = ->
-  return if willFlush
+  _deferAndTransfer: (func) ->
+    # Defer execution of a function, which will create a new fiber. Make the resulting
+    # fiber share ownership of the same tracker instance as it will serve only as its
+    # extension for executing its flushes.
+    Meteor.defer =>
+      assert not Fiber.current._trackerInstance
 
-  Meteor.defer ->
-    Tracker.flush _requireFlush: true
-  willFlush = true
+      try
+        Fiber.current._trackerInstance = @
+        func()
+      finally
+        Fiber.current._trackerInstance = null
 
-_.extend Tracker,
-  _currentComputation: new Meteor.EnvironmentVariable()
+  requireFlush: ->
+    return if @willFlush
 
-  flush: (_options) ->
-    if inFlush or queue._draining
-      # We ignore flushes which come from requireFlush if they are while some other flush
-      # is in progress. It is safe to just return here, as in this case we are still inside
-      # the main flush loop at least in some fiber. So any flush requests will still be
-      # handled by that loop.
-      return if _options?._requireFlush
+    @_deferAndTransfer =>
+      @_runFlush
+        fromRequireFlush: true
 
-      throw new Error "Can't call Tracker.flush while flushing"
+    @willFlush = true
 
-    if outstandingComputations > 0 or not queue.safeToRunTask()
-      # We ignore flushes which come from requireFlush if they are while some other flush
-      # is in progress. In this case we cannot simply return as no fiber is actually running
-      # the main flush loop (if it was, then inFlush would be true and the above code block
-      # would run). We must defer the flush function to be retried as otherwise this will
-      # leave willFlush at true and will thus block all future flushes.
-      if _options?._requireFlush
-        Meteor.defer ->
-          Tracker.flush _options
+  _runFlush: (options) ->
+    if @inFlush instanceof Future
+      # If there are two runs from requireFlush in sequence, we simply skip the second one, the first
+      # one is still in progress.
+      return if options?.fromRequireFlush
+
+      # We wait for the previous flush from requireFlush to finish before continuing.
+      @inFlush.wait()
+      assert not @inFlush
+
+    # If already in flush and this is a flush from requireFlush, just skip it.
+    return if @inFlush and options?.fromRequireFlush
+
+    throw new Error "Can't call Tracker.flush while flushing" if @inFlush
+
+    if @inCompute
+      if options?.fromRequireFlush
+        # If this fiber is currently running a computation and a require flush has been
+        # deferred, we need to defer again and retry.
+        @_deferAndTransfer =>
+          @_runFlush options
         return
 
       throw new Error "Can't flush inside Tracker.autorun"
 
-    inFlush = true
-    willFlush = true
-    firstError = null
-    throwFirstError = !!_options?._throwFirstError
-
-    # XXX COMPAT WITH METEOR 1.0.3.2
-    if queue._taskHandles.isEmpty
-      isQueueEmpty = -> queue._taskHandles.isEmpty.call queue._taskHandles
+    # If this is a run from requireFlush, provide a future so that calls to flush can wait on it.
+    if options?.fromRequireFlush
+      @inFlush = new Future()
     else
-      isQueueEmpty = -> _.isEmpty(queue._taskHandles)
+      @inFlush = true
 
+    @willFlush = true
+    @throwFirstError = !!options?.throwFirstError
+
+    recomputedCount = 0
+    finishedTry = false
     try
-      while not isQueueEmpty() or afterFlushCallbacks.length
-        queue.drain()
+      while @pendingComputations.length or @afterFlushCallbacks.length
 
-        if afterFlushCallbacks.length
-          func = afterFlushCallbacks.shift()
+        while @pendingComputations.length
+          computation = @pendingComputations.shift()
+          computation._recompute()
+          if computation._needsRecompute()
+            @pendingComputations.unshift computation
+
+          if not options?.finishSynchronously and ++recomputedCount > 1000
+            finishedTry = true
+            return
+
+        if @afterFlushCallbacks.length
+          func = @afterFlushCallbacks.shift()
           try
             func()
           catch error
-            _throwOrLog "afterFlush", error
+            @_throwOrLog "afterFlush", error
 
-      # If throwFirstError is set, only the first error is stored away, and
-      # the rest is still flushed, with potential future errors going to the log.
-      # This matches the behavior of the client-side Tracker, but the approach
-      # is different. No recursive calls to the flush.
-      throw firstError if firstError
+      finishedTry = true
     finally
-      firstError = null
-      willFlush = false
-      inFlush = false
+      # We first have to set @inFlush to null, then we can return.
 
-  autorun: (f) ->
-    throw new Error 'Tracker.autorun requires a function argument' unless typeof f is 'function'
+      inFlush = @inFlush
+      unless finishedTry
+        @inFlush = null
+        inFlush.return() if inFlush instanceof Future
+        @_runFlush
+          finishSynchronously: options?.finishSynchronously
+          throwFirstError: false
 
-    c = new Tracker.Computation f, Tracker.currentComputation, privateObject
+      @willFlush = false
+      @inFlush = null
+      inFlush.return() if inFlush instanceof Future
+      if @pendingComputations.length or @afterFlushCallbacks.length
+        throw new Error "still have more to do?" if options?.finishSynchronously
+        Meteor.setTimeout =>
+          @requireFlush()
+        , 10 # ms
 
-    if Tracker.active
-      Tracker.onInvalidate ->
-        c.stop()
+Tracker._computations = {}
 
-    c
+Tracker._trackerInstance = ->
+  Meteor._nodeCodeMustBeInFiber()
+  Fiber.current._trackerInstance ?= new TrackerInstance()
 
-  nonreactive: (f) ->
-    Tracker._currentComputation.withValue null, f
+Tracker.flush = (options) ->
+  Tracker._trackerInstance()._runFlush
+    finishSynchronously: true
+    throwFirstError: options?._throwFirstError
 
-  onInvalidate: (f) ->
-    throw new Error "Tracker.onInvalidate requires a currentComputation" unless Tracker.active
+Tracker.autorun = (func, options) ->
+  throw new Error "Tracker.autorun requires a function argument" unless typeof func is "function"
 
-    Tracker.currentComputation.onInvalidate(f)
+  c = new Tracker.Computation func, Tracker.currentComputation, options?.onError, privateObject
 
-  afterFlush: (f) ->
-    afterFlushCallbacks.push f
-    requireFlush()
+  if Tracker.active
+    Tracker.onInvalidate ->
+      c.stop()
+
+  c
+
+Tracker.nonreactive = (f) ->
+  trackerInstance = Tracker._trackerInstance()
+  previous = trackerInstance.currentComputation
+  trackerInstance.setCurrentComputation null
+  try
+    return f()
+  finally
+    trackerInstance.setCurrentComputation previous
+
+Tracker.onInvalidate = (f) ->
+  throw new Error "Tracker.onInvalidate requires a currentComputation" unless Tracker.active
+
+  Tracker.currentComputation.onInvalidate f
+
+Tracker.afterFlush = (f) ->
+  trackerInstance = Tracker._trackerInstance()
+  trackerInstance.afterFlushCallbacks.push f
+  trackerInstance.requireFlush()
 
 # Compatibility with the client-side Tracker. On node.js we can use defineProperties to define getters.
 Object.defineProperties Tracker,
   currentComputation:
     get: ->
-      # We want to make sure we are returning null and not
-      # undefined if there is no current computation.
-      Tracker._currentComputation.get() or null
+      Tracker._trackerInstance().currentComputation
 
   active:
     get: ->
-      !!Tracker._currentComputation.get()
+      Tracker._trackerInstance().active
 
 class Tracker.Computation
-  constructor: (f, @_parent, _private) ->
+  constructor: (func, @_parent, @_onError, _private) ->
     throw new Error "Tracker.Computation constructor is private; use Tracker.autorun" if _private isnt privateObject
 
     @stopped = false
@@ -152,12 +223,19 @@ class Tracker.Computation
     @_onStopCallbacks = []
     @_recomputing = false
 
+    @_trackerInstance = Tracker._trackerInstance()
+
     onException = (error) =>
       throw error if @firstRun
-      _throwOrLog "recompute", error
 
-    Tracker._currentComputation.withValue @, =>
-      @_func = Meteor.bindEnvironment f, onException, @
+      if @_onError
+        @_onError error
+      else
+        @_trackerInstance._throwOrLog "recompute", error
+
+    @_func = Meteor.bindEnvironment func, onException, @
+
+    Tracker._computations[@_id] = @
 
     errored = true
     try
@@ -168,7 +246,7 @@ class Tracker.Computation
       @stop() if errored
 
   onInvalidate: (f) ->
-    throw new Error "onInvalidate requires a function" unless typeof f is 'function'
+    throw new Error "onInvalidate requires a function" unless typeof f is "function"
 
     if @invalidated
       Tracker.nonreactive =>
@@ -176,12 +254,21 @@ class Tracker.Computation
     else
       @_onInvalidateCallbacks.push f
 
+  onStop: (f) ->
+    throw new Error "onStop requires a function" unless typeof f is "function"
+
+    if @stopped
+      Tracker.nonreactive =>
+        f @
+    else
+      @_onStopCallbacks.push f
+
   invalidate: ->
+    # TODO: Why some tests freeze if we wrap this method into FiberUtils.synchronize?
     if not @invalidated
       if not @_recomputing and not @stopped
-        requireFlush()
-        queue.queueTask =>
-          @_recompute() unless @_recomputing
+        @_trackerInstance.requireFlush()
+        @_trackerInstance.pendingComputations.push @
 
       @invalidated = true
 
@@ -190,47 +277,64 @@ class Tracker.Computation
           callback @
       @_onInvalidateCallbacks = []
 
-  onStop: (f) ->
-    throw new Error "onStop requires a function" unless typeof f is 'function'
-
-    if @stopped
-      Tracker.nonreactive =>
-        f @
-    else
-      @_onStopCallbacks.push f
-
   stop: ->
-    if not @stopped
+    FiberUtils.synchronize guard, @_id, =>
+      return if @stopped
       @stopped = true
+
       @invalidate()
+
+      delete Tracker._computations[@_id]
 
       for callback in @_onStopCallbacks
         Tracker.nonreactive =>
           callback @
       @_onStopCallbacks = []
 
+  # Runs an arbitrary function inside the computation. This allows breaking many assumptions, so use it very carefully.
+  _runInside: (func) ->
+    FiberUtils.synchronize guard, @_id, =>
+      Meteor._nodeCodeMustBeInFiber()
+      previousTrackerInstance = Tracker._trackerInstance()
+      Fiber.current._trackerInstance = @_trackerInstance
+      previousComputation = @_trackerInstance.currentComputation
+      @_trackerInstance.setCurrentComputation @
+      previousInCompute = @_trackerInstance.inCompute
+      @_trackerInstance.inCompute = true
+      try
+        func @
+      finally
+        Fiber.current._trackerInstance = previousTrackerInstance
+        @_trackerInstance.setCurrentComputation previousComputation
+        @_trackerInstance.inCompute = previousInCompute
+
   _compute: ->
-    @invalidated = false
-    outstandingComputations++
-    try
-      @_func @
-    finally
-      outstandingComputations--
-      assert outstandingComputations >= 0
+    FiberUtils.synchronize guard, @_id, =>
+      @invalidated = false
+
+      @_runInside @_func
+
+  _needsRecompute: ->
+    @invalidated and not @stopped
 
   _recompute: ->
-    assert not @_recomputing
-    @_recomputing = true
-    try
-      while @invalidated and not @stopped
-        @_compute()
-    finally
-      @_recomputing = false
+    FiberUtils.synchronize guard, @_id, =>
+      assert not @_recomputing
+      @_recomputing = true
+      try
+        if @_needsRecompute()
+          @_compute()
+      finally
+        @_recomputing = false
 
   flush: ->
     return if @_recomputing
 
     @_recompute()
+
+  run: ->
+    @invalidate()
+    @flush()
 
 class Tracker.Dependency
   constructor: ->
@@ -238,7 +342,7 @@ class Tracker.Dependency
 
   depend: (computation) ->
     unless computation
-      return false unless Tracker.currentComputation
+      return false unless Tracker.active
       computation = Tracker.currentComputation
 
     id = computation._id
