@@ -1,6 +1,6 @@
 Package.describe({
   summary: "Server-side Tracker.autorun",
-  version: '0.3.1',
+  version: '0.4.0',
   name: 'peerlibrary:server-autorun',
   git: 'https://github.com/peerlibrary/meteor-server-autorun.git'
 });
