@@ -39,9 +39,9 @@ class TrackerInstance
     return ->
 
   # Copied from tracker.js.
-  _maybeSupressMoreLogs: (messagesLength) ->
+  _maybeSuppressMoreLogs: (messagesLength) ->
     if typeof Meteor isnt "undefined"
-      if Meteor._supressed_log_expected()
+      if Meteor._suppressed_log_expected()
         Meteor._suppress_log(messagesLength - 1)
 
   # Copied from tracker.js.
@@ -56,7 +56,7 @@ class TrackerInstance
           message = error.name + ": " + error.message
           printArgs.push message
       printArgs.push error.stack
-      @_maybeSupressMoreLogs printArgs.length
+      @_maybeSuppressMoreLogs printArgs.length
 
       for printArg in printArgs
         @_debugFunc() printArg
