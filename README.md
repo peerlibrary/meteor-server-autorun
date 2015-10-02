@@ -13,6 +13,13 @@ Adding this package to your [Meteor](http://www.meteor.com/) application will ov
 
 Server side only.
 
+See also related packages:
+
+ * [peerlibrary:reactive-mongo](https://github.com/peerlibrary/meteor-reactive-mongo) makes MongoDB queries on the server
+   side reactive
+ * [peerlibrary:reactive-publish](https://github.com/peerlibrary/meteor-reactive-publish) extends publish endpoints
+   with support for reactivity so that you can use servers-side autorun inside a publish function
+
 Installation
 ------------
 
