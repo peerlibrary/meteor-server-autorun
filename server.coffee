@@ -221,6 +221,8 @@ class Tracker.Computation
     @_id = nextId++
     @_onInvalidateCallbacks = []
     @_onStopCallbacks = []
+    @_beforeRunCallbacks = []
+    @_afterRunCallbacks = []
     @_recomputing = false
 
     @_trackerInstance = Tracker._trackerInstance()
@@ -263,6 +265,16 @@ class Tracker.Computation
     else
       @_onStopCallbacks.push f
 
+  beforeRun: (f) ->
+    throw new Error "beforeRun requires a function" unless typeof f is "function"
+
+    @_beforeRunCallbacks.push f
+
+  afterRun: (f) ->
+    throw new Error "afterRun requires a function" unless typeof f is "function"
+
+    @_afterRunCallbacks.push f
+
   invalidate: ->
     # TODO: Why some tests freeze if we wrap this method into FiberUtils.synchronize?
     if not @invalidated
@@ -286,10 +298,10 @@ class Tracker.Computation
 
       delete Tracker._computations[@_id]
 
-      for callback in @_onStopCallbacks
+      while @_onStopCallbacks.length
+        callback = @_onStopCallbacks.shift()
         Tracker.nonreactive =>
           callback @
-      @_onStopCallbacks = []
 
   # Runs an arbitrary function inside the computation. This allows breaking many assumptions, so use it very carefully.
   _runInside: (func) ->
@@ -312,7 +324,18 @@ class Tracker.Computation
     FiberUtils.synchronize guard, @_id, =>
       @invalidated = false
 
-      @_runInside @_func
+      @_runInside (computation) =>
+        while @_beforeRunCallbacks.length
+          callback = @_beforeRunCallbacks.shift()
+          Tracker.nonreactive =>
+            callback @
+
+        @_func.call null, @
+
+        while @_afterRunCallbacks.length
+          callback = @_afterRunCallbacks.shift()
+          Tracker.nonreactive =>
+            callback @
 
   _needsRecompute: ->
     @invalidated and not @stopped
