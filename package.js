@@ -1,6 +1,6 @@
 Package.describe({
   summary: "Server-side Tracker.autorun",
-  version: '0.5.0',
+  version: '0.5.1',
   name: 'peerlibrary:server-autorun',
   git: 'https://github.com/peerlibrary/meteor-server-autorun.git'
 });
@@ -54,7 +54,7 @@ Package.onTest(function (api) {
 
   // 3rd party dependencies.
   api.use([
-    'peerlibrary:classy-test@0.2.18'
+    'peerlibrary:classy-test@0.2.19'
   ]);
 
   api.addFiles([
