@@ -44,8 +44,8 @@ Package.onTest(function (api) {
     'underscore',
     'ejson',
     'random',
-	// TODO: Remove comment when the package will be published under Meteor 1.2.
-    //'mongo-id'
+	// Comment out this package when publishing the package under Meteor < 1.2.
+    'mongo-id'
   ]);
 
   // Internal dependencies.
