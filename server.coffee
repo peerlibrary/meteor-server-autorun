@@ -248,22 +248,24 @@ class Tracker.Computation
       @stop() if errored
 
   onInvalidate: (f) ->
-    throw new Error "onInvalidate requires a function" unless typeof f is "function"
+    FiberUtils.ensureFiber =>
+      throw new Error "onInvalidate requires a function" unless typeof f is "function"
 
-    if @invalidated
-      Tracker.nonreactive =>
-        f @
-    else
-      @_onInvalidateCallbacks.push f
+      if @invalidated
+        Tracker.nonreactive =>
+          f @
+      else
+        @_onInvalidateCallbacks.push f
 
   onStop: (f) ->
-    throw new Error "onStop requires a function" unless typeof f is "function"
+    FiberUtils.ensureFiber =>
+      throw new Error "onStop requires a function" unless typeof f is "function"
 
-    if @stopped
-      Tracker.nonreactive =>
-        f @
-    else
-      @_onStopCallbacks.push f
+      if @stopped
+        Tracker.nonreactive =>
+          f @
+      else
+        @_onStopCallbacks.push f
 
   beforeRun: (f) ->
     throw new Error "beforeRun requires a function" unless typeof f is "function"
@@ -276,32 +278,34 @@ class Tracker.Computation
     @_afterRunCallbacks.push f
 
   invalidate: ->
-    # TODO: Why some tests freeze if we wrap this method into FiberUtils.synchronize?
-    if not @invalidated
-      if not @_recomputing and not @stopped
-        @_trackerInstance.requireFlush()
-        @_trackerInstance.pendingComputations.push @
+    FiberUtils.ensureFiber =>
+      # TODO: Why some tests freeze if we wrap this method into FiberUtils.synchronize?
+      if not @invalidated
+        if not @_recomputing and not @stopped
+          @_trackerInstance.requireFlush()
+          @_trackerInstance.pendingComputations.push @
 
-      @invalidated = true
+        @invalidated = true
 
-      for callback in @_onInvalidateCallbacks
-        Tracker.nonreactive =>
-          callback @
-      @_onInvalidateCallbacks = []
+        for callback in @_onInvalidateCallbacks
+          Tracker.nonreactive =>
+            callback @
+        @_onInvalidateCallbacks = []
 
   stop: ->
-    FiberUtils.synchronize guard, @_id, =>
-      return if @stopped
-      @stopped = true
+    FiberUtils.ensureFiber =>
+      FiberUtils.synchronize guard, @_id, =>
+        return if @stopped
+        @stopped = true
 
-      @invalidate()
+        @invalidate()
 
-      delete Tracker._computations[@_id]
+        delete Tracker._computations[@_id]
 
-      while @_onStopCallbacks.length
-        callback = @_onStopCallbacks.shift()
-        Tracker.nonreactive =>
-          callback @
+        while @_onStopCallbacks.length
+          callback = @_onStopCallbacks.shift()
+          Tracker.nonreactive =>
+            callback @
 
   # Runs an arbitrary function inside the computation. This allows breaking many assumptions, so use it very carefully.
   _runInside: (func) ->
@@ -351,13 +355,15 @@ class Tracker.Computation
         @_recomputing = false
 
   flush: ->
-    return if @_recomputing
+    FiberUtils.ensureFiber =>
+      return if @_recomputing
 
-    @_recompute()
+      @_recompute()
 
   run: ->
-    @invalidate()
-    @flush()
+    FiberUtils.ensureFiber =>
+      @invalidate()
+      @flush()
 
 class Tracker.Dependency
   constructor: ->
