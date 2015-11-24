@@ -305,5 +305,32 @@ class ServerAutorunTestCase extends ClassyTestCase
     @assertTrue startedAutorun
     @assertTrue finishedAutorun
 
+  testServerNonfiberInvalidation: ->
+    trigger = new ReactiveVar 0
+    runs = []
+
+    computation = Tracker.autorun (computation) =>
+      runs.push trigger.get()
+
+    exception = Meteor.bindEnvironment (error) =>
+      @_internal.test.fail
+        type: 'exception'
+        message: error.message
+        stack: error.stack
+
+    setTimeout =>
+      try
+        trigger.set 1
+      catch error
+        exception error
+    ,
+      5
+
+    Meteor._sleepForMs 20
+
+    @assertEqual runs, [0, 1]
+
+    computation.stop()
+
 # Register the test case.
 ClassyTestCase.addTest new ServerAutorunTestCase()
