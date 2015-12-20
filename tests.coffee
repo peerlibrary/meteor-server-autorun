@@ -313,7 +313,7 @@ class ServerAutorunTestCase extends ClassyTestCase
       runs.push trigger.get()
 
     exception = Meteor.bindEnvironment (error) =>
-      @_internal.test.fail
+      @assertFail
         type: 'exception'
         message: error.message
         stack: error.stack
