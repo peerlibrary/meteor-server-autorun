@@ -248,7 +248,7 @@ class Tracker.Computation
       @stop() if errored
 
   onInvalidate: (f) ->
-    FiberUtils.ensureFiber =>
+    FiberUtils.ensure =>
       throw new Error "onInvalidate requires a function" unless typeof f is "function"
 
       if @invalidated
@@ -258,7 +258,7 @@ class Tracker.Computation
         @_onInvalidateCallbacks.push f
 
   onStop: (f) ->
-    FiberUtils.ensureFiber =>
+    FiberUtils.ensure =>
       throw new Error "onStop requires a function" unless typeof f is "function"
 
       if @stopped
@@ -278,7 +278,7 @@ class Tracker.Computation
     @_afterRunCallbacks.push f
 
   invalidate: ->
-    FiberUtils.ensureFiber =>
+    FiberUtils.ensure =>
       # TODO: Why some tests freeze if we wrap this method into FiberUtils.synchronize?
       if not @invalidated
         if not @_recomputing and not @stopped
@@ -293,7 +293,7 @@ class Tracker.Computation
         @_onInvalidateCallbacks = []
 
   stop: ->
-    FiberUtils.ensureFiber =>
+    FiberUtils.ensure =>
       FiberUtils.synchronize guard, @_id, =>
         return if @stopped
         @stopped = true
@@ -355,13 +355,13 @@ class Tracker.Computation
         @_recomputing = false
 
   flush: ->
-    FiberUtils.ensureFiber =>
+    FiberUtils.ensure =>
       return if @_recomputing
 
       @_recompute()
 
   run: ->
-    FiberUtils.ensureFiber =>
+    FiberUtils.ensure =>
       @invalidate()
       @flush()
 

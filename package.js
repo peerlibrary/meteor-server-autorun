@@ -1,12 +1,12 @@
 Package.describe({
   summary: "Server-side Tracker.autorun",
-  version: '0.5.2',
+  version: '0.6.0',
   name: 'peerlibrary:server-autorun',
   git: 'https://github.com/peerlibrary/meteor-server-autorun.git'
 });
 
 Package.onUse(function (api) {
-  api.versionsFrom('METEOR@1.0.3.1');
+  api.versionsFrom('METEOR@1.4.2');
 
   // Core dependencies.
   api.use([
@@ -20,7 +20,7 @@ Package.onUse(function (api) {
   // 3rd party dependencies.
   api.use([
     'peerlibrary:assert@0.2.5',
-    'peerlibrary:fiber-utils@0.6.0'
+    'peerlibrary:fiber-utils@0.7.2'
   ], 'server');
 
   api.addFiles([
@@ -33,6 +33,8 @@ Package.onUse(function (api) {
 });
 
 Package.onTest(function (api) {
+  api.versionsFrom('METEOR@1.4.2');
+
   // Core dependencies.
   api.use([
     'tinytest',
@@ -44,8 +46,8 @@ Package.onTest(function (api) {
     'underscore',
     'ejson',
     'random',
-	// Comment out this package when publishing the package under Meteor < 1.2.
-    'mongo-id'
+    'mongo-id',
+    'ecmascript'
   ]);
 
   // Internal dependencies.
@@ -55,7 +57,7 @@ Package.onTest(function (api) {
 
   // 3rd party dependencies.
   api.use([
-    'peerlibrary:classy-test@0.2.22'
+    'peerlibrary:classy-test@0.2.26'
   ]);
 
   api.addFiles([
