@@ -1,5 +1,7 @@
-Fiber = Npm.require 'fibers'
-Future = Npm.require 'fibers/future'
+import {Tracker} from 'meteor/tracker'
+
+import Fiber from 'fibers'
+import Future from 'fibers/future'
 
 # Tracker.Computation constructor is private, so we are using this object as a guard.
 # External code cannot access this, and will not be able to directly construct a
@@ -392,3 +394,5 @@ class Tracker.Dependency
     for id, computation of @_dependentsById
       return true
     false
+
+export {Tracker}
