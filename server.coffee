@@ -160,9 +160,8 @@ class TrackerInstance
         throw new Error "still have more to do?" if options?.finishSynchronously
         Meteor.setTimeout =>
           @requireFlush()
-        , 10 # ms
-
-Tracker._computations = {}
+        ,
+          10 # ms
 
 Tracker._trackerInstance = ->
   Meteor._nodeCodeMustBeInFiber()
@@ -242,8 +241,6 @@ class Tracker.Computation
 
     @_func = Meteor.bindEnvironment func, onException, @
 
-    Tracker._computations[@_id] = @
-
     errored = true
     try
       @_compute()
@@ -304,8 +301,6 @@ class Tracker.Computation
         @stopped = true
 
         @invalidate()
-
-        delete Tracker._computations[@_id]
 
         while @_onStopCallbacks.length
           callback = @_onStopCallbacks.shift()
