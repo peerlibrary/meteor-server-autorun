@@ -173,6 +173,9 @@ Tracker.flush = (options) ->
     finishSynchronously: true
     throwFirstError: options?._throwFirstError
 
+Tracker.inFlush = ->
+  Tracker._trackerInstance().inFlush
+
 Tracker.autorun = (func, options) ->
   throw new Error "Tracker.autorun requires a function argument" unless typeof func is "function"
 
