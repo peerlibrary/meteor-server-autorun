@@ -1,6 +1,4 @@
-meteor/tools
-meteor/dev_bundle
-meteor/examples
-meteor/scripts
+meteor/*
+!meteor/packages
 meteor/packages/*
 !meteor/packages/minimongo
