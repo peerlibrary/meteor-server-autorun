@@ -1,6 +1,6 @@
 Package.describe({
   summary: "Server-side Tracker.autorun",
-  version: '0.7.0',
+  version: '0.7.1',
   name: 'peerlibrary:server-autorun',
   git: 'https://github.com/peerlibrary/meteor-server-autorun.git'
 });
@@ -43,7 +43,8 @@ Package.onTest(function (api) {
     'underscore',
     'ejson',
     'random',
-    'mongo-id'
+    'mongo-id',
+    'id-map'
   ]);
 
   // Internal dependencies.
@@ -58,7 +59,9 @@ Package.onTest(function (api) {
 
   api.addFiles([
     'meteor/packages/tracker/tracker_tests.js',
+    'meteor/packages/minimongo/matcher.js',
     'meteor/packages/minimongo/minimongo_tests.js',
+    'meteor/packages/minimongo/minimongo_tests_client.js',
     'tests.coffee'
   ]);
 });
