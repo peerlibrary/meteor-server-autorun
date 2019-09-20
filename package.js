@@ -1,16 +1,16 @@
 Package.describe({
   summary: "Server-side Tracker.autorun",
-  version: '0.7.1',
+  version: '0.8.0',
   name: 'peerlibrary:server-autorun',
   git: 'https://github.com/peerlibrary/meteor-server-autorun.git'
 });
 
 Package.onUse(function (api) {
-  api.versionsFrom('METEOR@1.4.4.5');
+  api.versionsFrom('METEOR@1.8.1');
 
   // Core dependencies.
   api.use([
-    'coffeescript@2.0.3_3',
+    'coffeescript@2.4.1',
     'ecmascript',
     'underscore',
     'tracker'
@@ -18,8 +18,8 @@ Package.onUse(function (api) {
 
   // 3rd party dependencies.
   api.use([
-    'peerlibrary:assert@0.2.5',
-    'peerlibrary:fiber-utils@0.9.1'
+    'peerlibrary:assert@0.3.0',
+    'peerlibrary:fiber-utils@0.10.0'
   ], 'server');
 
   api.export('Tracker');
@@ -29,11 +29,11 @@ Package.onUse(function (api) {
 });
 
 Package.onTest(function (api) {
-  api.versionsFrom('METEOR@1.4.4.5');
+  api.versionsFrom('METEOR@1.8.1');
 
   // Core dependencies.
   api.use([
-    'coffeescript@2.0.3_3',
+    'coffeescript@2.4.1',
     'ecmascript',
     'tinytest',
     'test-helpers',
@@ -54,7 +54,7 @@ Package.onTest(function (api) {
 
   // 3rd party dependencies.
   api.use([
-    'peerlibrary:classy-test@0.3.0'
+    'peerlibrary:classy-test@0.4.0'
   ]);
 
   api.addFiles([
